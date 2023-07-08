@@ -11,7 +11,10 @@ defmodule Letterpairs.Count do
 	alias Letterpairs.Letters
 	alias Letterpairs.Count
 
-	def count(file, results) do
+	def count(file, results, verbose) do
+		if verbose do
+			IO.inspect(file, label: "reading file")
+		end
 		case File.exists?(file) do
 			true  -> read_file(file, results)
 			false -> IO.inspect(file, label: "file doens't exist - skipping")
@@ -32,27 +35,27 @@ defmodule Letterpairs.Count do
 	defp parse_binary(<<>>, result), do: result
 	defp parse_binary(<<a::utf8, b::utf8, rest::binary>>, result) do
 		newresult = count_pairs(make_type(a), make_type(b), result)
-		parse_binary(<<b, rest::binary>>, newresult)
+		parse_binary(<<b::utf8, rest::binary>>, newresult)
 	end
-	defp parse_binary(<<a>>, result) do
+	defp parse_binary(<<a::utf8>>, result) do
 		newresult = count_pairs(make_type(a), type(<<>>), result)
 		parse_binary(<<>>, newresult)
 	end
 
 	defp count_pairs(a, b, result) do
-		#IO.inspect({a, b}, label: "pairs to count")
 		%Count{rawpairs:        raw,
 			   typedpairs:      typed,
 			   positionalpairs: pos,
 			   terminals:       term,
 			   initials:        init} = result
-		newraw   = basic_count(a.letter,   b.letter,   raw)
-		newtyped = basic_count(a.type,     b.type,     typed)
-		newpos   = basic_count(a.position, b.position, pos)
 
+		newraw   = basic_count(a.letter, b.letter, raw)
+		newtyped = typed_count(a.type,   b.type, typed)
+		newpos   = positional_count(a.position, b.position, pos)
 		newterm  = terminal_count(a.letter, b.letter, term)
 		# Note - swapped letter order
 		newinit  = terminal_count(b.letter, a.letter, init)
+
 		%Count{result | rawpairs:        newraw,
 			            typedpairs:      newtyped,
 			            positionalpairs: newpos,
@@ -60,12 +63,35 @@ defmodule Letterpairs.Count do
 			            initials:        newinit}
 	end
 
-	defp basic_count(nil, nil, count), do: count
-	defp basic_count(_,   nil, count), do: count
-	defp basic_count(nil,  _,  count), do: count
+	defp basic_count("", "", count), do: count
+	defp basic_count(_,  "", count), do: count
+	defp basic_count("",  _, count), do: count
 	defp basic_count(a, b, count) do
 		key = {a, b}
-		IO.inspect(key, label: "terminal")
+		case Map.has_key?(count, key) do
+			true  -> v = Map.get(count, key)
+					 Map.put(count, key, v + 1)
+		 	false -> Map.put(count, key, 1)
+		end
+	end
+
+	defp typed_count(:whitespace, :whitespace, count), do: count
+	defp typed_count(_,           :whitespace, count), do: count
+	defp typed_count(:whitespace,  _,          count), do: count
+	defp typed_count(a, b, count) do
+		key = {a, b}
+		case Map.has_key?(count, key) do
+			true  -> v = Map.get(count, key)
+					 Map.put(count, key, v + 1)
+		 	false -> Map.put(count, key, 1)
+		end
+	end
+
+	defp positional_count(nil, nil, count), do: count
+	defp positional_count(_,   nil, count), do: count
+	defp positional_count(nil,   _, count), do: count
+	defp positional_count(a, b, count) do
+		key = {a, b}
 		case Map.has_key?(count, key) do
 			true  -> v = Map.get(count, key)
 					 Map.put(count, key, v + 1)
@@ -75,7 +101,6 @@ defmodule Letterpairs.Count do
 
 	defp terminal_count("", "", count), do: count
 	defp terminal_count(key,  "", count) do
-		IO.inspect(key, label: "terminal")
 		case Map.has_key?(count, key) do
 			true  -> v = Map.get(count, key)
 					 Map.put(count, key, v + 1)
@@ -85,12 +110,38 @@ defmodule Letterpairs.Count do
 	defp terminal_count(_, _, count), do: count
 
 
+	def sortfn({_, a}, {_, b}) do
+		a > b
+	end
+
 	def print(count) do
-		IO.inspect(Enum.sort(count.rawpairs,        &(&1 >= &2)), label: "raw pairs")
-		IO.inspect(Enum.sort(count.typedpairs,      &(&1 >= &2)), label: "typed pairs")
-		IO.inspect(Enum.sort(count.positionalpairs, &(&1 >= &2)), label: "positional pairs")
-		IO.inspect(Enum.sort(count.terminals,       &(&1 >= &2)), label: "terminals")
-		IO.inspect(Enum.sort(count.initials,        &(&1 >= &2)), label: "initials")
+		format_and_print(count.rawpairs,        "Raw Pairs")
+		format_and_print(count.typedpairs,      "Typed Pairs")
+		format_and_print(count.positionalpairs, "Positional Pairs")
+		format_and_print(count.terminals,       "Terminals")
+		format_and_print(count.initials,        "Initials")
+	end
+
+	defp format_and_print(hash, label) do
+		IO.puts(label)
+		total = Enum.reduce(hash, 0, fn({_k, v}, total) -> total + v end)
+		IO.inspect(total, label: "total")
+		sorted = Enum.sort(hash, &sortfn/2)
+		Enum.map(sorted, fn({k, v}) -> results_print(k, v, total) end)
+	end
+
+	defp results_print({a, b}, n, total) when is_atom(a) and is_atom(b) do
+		perc = Float.round((n/total)*100, 1)
+		IO.puts("#{a} #{b} - #{perc}%")
+	end
+	defp results_print({a, b}, n, total) do
+		pair = a <> b
+		perc = Float.round((n/total)*100, 1)
+		IO.puts("#{pair} - #{perc}%")
+	end
+	defp results_print(a, n, total) do
+		perc = Float.round((n/total)*100, 1)
+		IO.puts("#{a} - #{perc}%")
 	end
 
 	defp make_type(n), do: type(List.to_string([n]))
@@ -117,12 +168,12 @@ defmodule Letterpairs.Count do
 	defp type(<<"J">>), do: %Letters{letter: <<"j">>, type: :stop,        position: :postalveolar}
 	defp type(<<"k">>), do: %Letters{letter: <<"k">>, type: :stop,        position: :velar}
 	defp type(<<"K">>), do: %Letters{letter: <<"k">>, type: :stop,        position: :velar}
-	defp type(<<"l">>), do: %Letters{letter: <<"l">>, type: :approximant, position: :alveoloar}
-	defp type(<<"L">>), do: %Letters{letter: <<"l">>, type: :approximant, position: :alveoloar}
+	defp type(<<"l">>), do: %Letters{letter: <<"l">>, type: :approximant, position: :alveolar}
+	defp type(<<"L">>), do: %Letters{letter: <<"l">>, type: :approximant, position: :alveolar}
 	defp type(<<"m">>), do: %Letters{letter: <<"m">>, type: :approximant, position: :velar}
 	defp type(<<"M">>), do: %Letters{letter: <<"m">>, type: :approximant, position: :velar}
-	defp type(<<"n">>), do: %Letters{letter: <<"n">>, type: :nasal,       position: :alveoloar}
-	defp type(<<"N">>), do: %Letters{letter: <<"n">>, type: :nasal,       position: :alveoloar}
+	defp type(<<"n">>), do: %Letters{letter: <<"n">>, type: :nasal,       position: :alveolar}
+	defp type(<<"N">>), do: %Letters{letter: <<"n">>, type: :nasal,       position: :alveolar}
 	defp type(<<"o">>), do: %Letters{letter: <<"o">>, type: :vowel}
 	defp type(<<"O">>), do: %Letters{letter: <<"o">>, type: :vowel}
 	defp type(<<"p">>), do: %Letters{letter: <<"p">>, type: :stop,        position: :labial}
@@ -169,6 +220,8 @@ defmodule Letterpairs.Count do
 	defp type(<<">">>), do: %Letters{letter: <<>>,    type: :whitespace}
 	defp type(<<"<">>), do: %Letters{letter: <<>>,    type: :whitespace}
 	defp type(<<" ">>), do: %Letters{letter: <<>>,    type: :whitespace}
+	defp type(<<"&">>), do: %Letters{letter: <<>>,    type: :whitespace}
+	defp type(<<"-">>), do: %Letters{letter: <<>>,    type: :whitespace}
 
 	defp type(<<>>),     do: %Letters{letter: <<>>,   type: :whitespace}
 
@@ -177,9 +230,8 @@ defmodule Letterpairs.Count do
 	defp type(<<"\r">>), do: %Letters{letter: <<>>,   type: :whitespace}
 	defp type(<<"\t">>), do: %Letters{letter: <<>>,   type: :whitespace}
 
-	defp type(x) do
-		IO.inspect(x, label: "unknown character")
-		%Letters{letter: <<>>,    type: :whitespace}
+	defp type(_x) do
+		%Letters{letter: <<>>, type: :whitespace}
 	end
 
 end

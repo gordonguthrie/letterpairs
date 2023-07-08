@@ -42,25 +42,28 @@ defmodule Letterpairs.CLI do
 	end
 	defp run(parsedargs, count) when parsedargs.files != []  do
 		[h | t] = parsedargs.files
-		newcount = Count.count(h, count)
+		newcount = Count.count(h, count, parsedargs.verbose)
 		run(%Args{parsedargs | files: t}, newcount)
 	end
 	defp run(parsedargs, count) when parsedargs.directories != []  do
 		[h | t] = parsedargs.directories
-		newcount = walk_directory(h, parsedargs.extensions, count)
+		if parsedargs.verbose do
+			IO.inspect(h, label: "reading directory")
+		end
+		newcount = walk_directory(h, parsedargs, count)
 		run(%Args{parsedargs | directories: t}, newcount)
 	end
 	defp run(_parsedargs, count) do
 		Count.print(count)
 	end
 
-	defp walk_directory(dir, extensions, count) do
-		files = Path.wildcard(make_wildcard(dir, extensions))
-		walk(files, count)
+	defp walk_directory(dir, parsedargs, count) do
+		files = Path.wildcard(make_wildcard(dir, parsedargs.extensions))
+		walk(files, count, parsedargs.verbose)
 	end
 
-	defp walk([],      count), do: count
-	defp walk([h | t], count), do: walk(t, Count.count(h, count))
+	defp walk([],      count, _verbose), do: count
+	defp walk([h | t], count,  verbose), do: walk(t, Count.count(h, count, verbose), verbose)
 
 	defp make_wildcard(dir, extensions) do
 		ext = Enum.join(extensions, ",")
